@@ -3,15 +3,18 @@
 void NonlinearOptimizer::refine_H(const std::vector<cv::Point2f> &img_pts_,
                                   const std::vector<cv::Point2f> &board_pts_,
                                   const Eigen::Matrix3d &matrix_H_,
-                                  Eigen::Matrix3d &refined_H_) {
+                                  Eigen::Matrix3d &refined_H_)
+{
   Eigen::MatrixXd x1(2, board_pts_.size());
   Eigen::MatrixXd x2(2, img_pts_.size());
 
-  for (int i = 0; i < board_pts_.size(); ++i) {
+  for (int i = 0; i < board_pts_.size(); ++i)
+  {
     x1(0, i) = board_pts_[i].x;
     x1(1, i) = board_pts_[i].y;
   }
-  for (int i = 0; i < img_pts_.size(); ++i) {
+  for (int i = 0; i < img_pts_.size(); ++i)
+  {
     x2(0, i) = img_pts_[i].x;
     x2(1, i) = img_pts_[i].y;
   }
@@ -20,7 +23,8 @@ void NonlinearOptimizer::refine_H(const std::vector<cv::Point2f> &img_pts_,
   // std::cout << "H:" << H<< std::endl;
   // Step 2: Refine matrix using Ceres minimizer.
   ceres::Problem problem;
-  for (int i = 0; i < x1.cols(); i++) {
+  for (int i = 0; i < x1.cols(); i++)
+  {
     HomographySymmetricGeometricCostFunctor
         *homography_symmetric_geometric_cost_function =
             new HomographySymmetricGeometricCostFunctor(x1.col(i), x2.col(i));
@@ -55,7 +59,8 @@ void NonlinearOptimizer::refine_all_camera_params(
     const Params &params_,
     const std::vector<std::vector<cv::Point2f>> &imgs_pts_,
     const std::vector<std::vector<cv::Point2f>> &bords_pts_,
-    Params &refined_params_) {
+    Params &refined_params_)
+{
   ceres::Problem problem;
   Eigen::Matrix3d camera_matrix = params_.camera_matrix;
   Eigen::VectorXd k = params_.k;
@@ -68,7 +73,8 @@ void NonlinearOptimizer::refine_all_camera_params(
 
   // package all rt
   std::vector<Eigen::VectorXd> packet_rt;
-  for (int n = 0; n < params_.vec_rt.size(); ++n) {
+  for (int n = 0; n < params_.vec_rt.size(); ++n)
+  {
     Eigen::AngleAxisd r(vec_rt[n].block<3, 3>(0, 0));
     Eigen::VectorXd rot_vec(r.axis() * r.angle());
     Eigen::VectorXd rt(6);
@@ -76,21 +82,25 @@ void NonlinearOptimizer::refine_all_camera_params(
         vec_rt[n](2, 3);
     packet_rt.push_back(rt);
   }
-  for (int n = 0; n < params_.vec_rt.size(); ++n) {
+  for (int n = 0; n < params_.vec_rt.size(); ++n)
+  {
     Eigen::MatrixXd x1(2, bords_pts_[n].size());
     Eigen::MatrixXd x2(2, imgs_pts_[n].size());
 
-    for (int i = 0; i < bords_pts_[n].size(); ++i) {
+    for (int i = 0; i < bords_pts_[n].size(); ++i)
+    {
       x1(0, i) = bords_pts_[n][i].x;
       x1(1, i) = bords_pts_[n][i].y;
     }
-    for (int i = 0; i < imgs_pts_[n].size(); ++i) {
+    for (int i = 0; i < imgs_pts_[n].size(); ++i)
+    {
       x2(0, i) = imgs_pts_[n][i].x;
       x2(1, i) = imgs_pts_[n][i].y;
     }
 
     double *p_rt = &packet_rt[n](0);
-    for (int i = 0; i < x1.cols(); i++) {
+    for (int i = 0; i < x1.cols(); i++)
+    {
       ReprojectionError *cost_function =
           new ReprojectionError(x2.col(i), x1.col(i));
 
@@ -110,20 +120,23 @@ void NonlinearOptimizer::refine_all_camera_params(
   ceres::Solver::Summary summary;
   ceres::Solve(options, &problem, &summary);
 
-  DLOG(INFO) << "Final Brief Report:\n" << summary.BriefReport() << std::endl;
+  DLOG(INFO) << "Final Brief Report:\n"
+             << summary.BriefReport() << std::endl;
   this->formate_data(v_camera_matrix, k, packet_rt, refined_params_);
 }
 
 void NonlinearOptimizer::formate_data(const Eigen::VectorXd &v_camera_matrix_,
                                       const Eigen::VectorXd &v_dist_,
                                       const std::vector<Eigen::VectorXd> &v_rt_,
-                                      Params &params_) {
+                                      Params &params_)
+{
   params_.camera_matrix << v_camera_matrix_(0), v_camera_matrix_(1),
       v_camera_matrix_(2), 0., v_camera_matrix_(3), v_camera_matrix_(4), 0, 0,
       1.;
   params_.k = v_dist_;
   params_.vec_rt.clear();
-  for (const auto &rt : v_rt_) {
+  for (const auto &rt : v_rt_)
+  {
     Eigen::Vector3d rv(rt(0), rt(1), rt(2));
     Eigen::AngleAxisd r_v(rv.norm(), rv / rv.norm());
     Eigen::Matrix<double, 3, 4> rt1;
@@ -138,20 +151,22 @@ void NonlinearOptimizer::refine_lidar2camera_params(
     const std::vector<std::vector<cv::Point2f>> &imgs_pts_,
     const std::vector<std::vector<cv::Point2f>> &bords_pts_,
     const std::vector<LidarPointPair> lidar_point_pairs,
-    LidarParams &refined_params_) {
+    LidarParams &refined_params_)
+{
   ceres::Problem problem;
-  Eigen::Matrix3d camera_matrix = params_.camera_matrix;
-  Eigen::VectorXd k = params_.k;
-  std::vector<Eigen::MatrixXd> vec_rt = params_.vec_rt;
+  Eigen::Matrix3d camera_matrix = params_.camera_matrix; //相机内参
+  Eigen::VectorXd k = params_.k;                         //畸变矩阵
+  std::vector<Eigen::MatrixXd> vec_rt = params_.vec_rt;  //旋转平移向量
   Eigen::VectorXd v_camera_matrix(5);
   v_camera_matrix << camera_matrix(0, 0), camera_matrix(0, 1),
       camera_matrix(0, 2), camera_matrix(1, 1), camera_matrix(1, 2);
   double *p_camera = v_camera_matrix.data();
   double *p_k = k.data();
 
-  // package all rt
+  // 打包所有的旋转平移矩阵
   std::vector<Eigen::VectorXd> packet_rt;
-  for (int n = 0; n < params_.vec_rt.size(); ++n) {
+  for (int n = 0; n < params_.vec_rt.size(); ++n)
+  {
     Eigen::AngleAxisd r(vec_rt[n].block<3, 3>(0, 0));
     Eigen::VectorXd rot_vec(r.axis() * r.angle());
     Eigen::VectorXd rt(6);
@@ -159,21 +174,26 @@ void NonlinearOptimizer::refine_lidar2camera_params(
         vec_rt[n](2, 3);
     packet_rt.push_back(rt);
   }
-  for (int n = 0; n < params_.vec_rt.size(); ++n) {
+  for (int n = 0; n < params_.vec_rt.size(); ++n)
+  {
     Eigen::MatrixXd x1(2, bords_pts_[n].size());
     Eigen::MatrixXd x2(2, imgs_pts_[n].size());
 
-    for (int i = 0; i < bords_pts_[n].size(); ++i) {
-      x1(0, i) = bords_pts_[n][i].x;
+    for (int i = 0; i < bords_pts_[n].size(); ++i)
+    {
+      x1(0, i) = bords_pts_[n][i].x; //棋盘格索引
       x1(1, i) = bords_pts_[n][i].y;
     }
-    for (int i = 0; i < imgs_pts_[n].size(); ++i) {
-      x2(0, i) = imgs_pts_[n][i].x;
+    for (int i = 0; i < imgs_pts_[n].size(); ++i)
+    {
+      x2(0, i) = imgs_pts_[n][i].x; //图像索引
       x2(1, i) = imgs_pts_[n][i].y;
     }
 
     double *p_rt = &packet_rt[n](0);
-    for (int i = 0; i < x1.cols(); i++) {
+    for (int i = 0; i < x1.cols(); i++)
+    {
+      //将棋盘点加入优化，完成内参的求解
       ReprojectionError *cost_function =
           new ReprojectionError(x2.col(i), x1.col(i));
 
@@ -192,9 +212,12 @@ void NonlinearOptimizer::refine_lidar2camera_params(
   rt << rot_vec(0), rot_vec(1), rot_vec(2), initial_rt(0, 3), initial_rt(1, 3),
       initial_rt(2, 3);
   double *p_rt = &rt(0);
-  for (size_t i = 0; i < lidar_point_pairs.size(); i++) {
+  //获取激光雷达的三维点以及投影到图像上的点的残差
+  for (size_t i = 0; i < lidar_point_pairs.size(); i++)
+  {
     LidarPointPair lidar_pair = lidar_point_pairs[i];
-    for (size_t j = 0; j < 4; j++) {
+    for (size_t j = 0; j < 4; j++)
+    {
       Eigen::Vector3d lidar_3d_point(lidar_pair.lidar_3d_point[j].x,
                                      lidar_pair.lidar_3d_point[j].y,
                                      lidar_pair.lidar_3d_point[j].z);
@@ -230,13 +253,15 @@ void NonlinearOptimizer::formate_data(const Eigen::VectorXd &v_camera_matrix_,
                                       const Eigen::VectorXd &v_dist_,
                                       const std::vector<Eigen::VectorXd> &v_rt_,
                                       const Eigen::VectorXd &RT,
-                                      LidarParams &params_) {
+                                      LidarParams &params_)
+{
   params_.camera_matrix << v_camera_matrix_(0), v_camera_matrix_(1),
       v_camera_matrix_(2), 0., v_camera_matrix_(3), v_camera_matrix_(4), 0, 0,
       1.;
   params_.k = v_dist_;
   params_.vec_rt.clear();
-  for (const auto &rt : v_rt_) {
+  for (const auto &rt : v_rt_)
+  {
     Eigen::Vector3d rv(rt(0), rt(1), rt(2));
     Eigen::AngleAxisd r_v(rv.norm(), rv / rv.norm());
     Eigen::Matrix<double, 3, 4> rt1;

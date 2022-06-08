@@ -9,11 +9,13 @@
 
 void CameraCalibrator::set_input(
     const std::vector<std::string> images_name,
-    const std::vector<cv::Mat> &vec_mat_, const cv::Size &chessboard_size_,
-    const std::vector<std::vector<std::string>> &lidar_3d_pts) {
+    const std::vector<cv::Mat> &vec_mat_, const cv::Size &chessboard_size_, //棋盘格的尺寸
+    const std::vector<std::vector<std::string>> &lidar_3d_pts)
+{
   // lidar
   std::vector<std::vector<cv::Point3f>> pts;
-  for (auto src : lidar_3d_pts) {
+  for (auto src : lidar_3d_pts)
+  { // 从lidar_3d_pts中读取pts初值
     std::vector<cv::Point3f> pt;
     cv::Point3f left_top(std::stod(src[0]), std::stod(src[1]),
                          std::stod(src[2]));
@@ -34,25 +36,27 @@ void CameraCalibrator::set_input(
   _boards_pts.clear();
   _imgs_pts.clear();
   int i = 0;
-  for (const auto &img : vec_mat_) {
+  for (const auto &img : vec_mat_)
+  {
     CHECK(1 == img.channels()) << "images must be gray";
     std::vector<cv::Point2f> corner_pts;
     int found = cv::findChessboardCorners(img, chessboard_size_, corner_pts,
                                           cv::CALIB_CB_ADAPTIVE_THRESH |
                                               cv::CALIB_CB_FAST_CHECK |
-                                              cv::CALIB_CB_NORMALIZE_IMAGE);
-    if (!found) {
+                                              cv::CALIB_CB_NORMALIZE_IMAGE); // 找到棋盘角点
+    if (!found)
+    {
       continue;
     }
     cv::Mat img_copy = img.clone();
-    available_imgs.push_back(img_copy);
-    lidar_3d_pts_.push_back(pts[i]);
+    available_imgs.push_back(img_copy); // 将找到的棋盘角点保存到available_imgs中
+    lidar_3d_pts_.push_back(pts[i]);    // 将对应图像的四个初始中心点保存到lidar_3d_pts_中
     std::cout << images_name[i] << std::endl;
     i++;
-    cv::TermCriteria criteria(2, 30, 0.001);
+    cv::TermCriteria criteria(2, 30, 0.001); // 参数设置,定义迭代算法终止条件的类型，迭代次数，收敛精度
     cv::cornerSubPix(img, corner_pts, chessboard_size_, cv::Size(-1, -1),
                      criteria);
-    _imgs_pts.push_back(corner_pts);
+    _imgs_pts.push_back(corner_pts); // 将更新后的棋盘角点保存到_imgs_pts中
     this->make_board_points(chessboard_size_);
   }
 }
@@ -60,13 +64,15 @@ void CameraCalibrator::set_input(
 void CameraCalibrator::get_result(cv::Mat &camera_matrix, cv::Mat &k,
                                   const cv::Size &image_size,
                                   std::vector<cv::Mat> &rvecsMat,
-                                  std::vector<cv::Mat> &tvecsMat) {
+                                  std::vector<cv::Mat> &tvecsMat)
+{
+  // 输出rvecs ：旋转向量，tvecs ：位移向量
   double re_error =
       cv::calibrateCamera(_boards_pts_3d, _imgs_pts, image_size, camera_matrix,
-                          k, rvecsMat, tvecsMat, CV_CALIB_FIX_PRINCIPAL_POINT);
+                          k, rvecsMat, tvecsMat, CV_CALIB_FIX_PRINCIPAL_POINT); // 从make_board_points拿到的点，来完成重投影误差
   std::cout << "reprojection is " << re_error << std::endl;
 
-  Eigen::Matrix3d camera_intrinsic;
+  Eigen::Matrix3d camera_intrinsic; // 内参矩阵
   camera_intrinsic << camera_matrix.at<double>(0, 0),
       camera_matrix.at<double>(1, 0), camera_matrix.at<double>(2, 0),
       camera_matrix.at<double>(0, 1), camera_matrix.at<double>(1, 1),
@@ -74,58 +80,67 @@ void CameraCalibrator::get_result(cv::Mat &camera_matrix, cv::Mat &k,
       camera_matrix.at<double>(1, 2), camera_matrix.at<double>(2, 2);
 
   Eigen::VectorXd distort(2);
-  distort << k.at<double>(0, 0), k.at<double>(0, 1);
+  distort << k.at<double>(0, 0), k.at<double>(0, 1); //畸变矩阵
 
   std::vector<Eigen::MatrixXd> vec_extrinsics;
-  for (size_t i = 0; i < rvecsMat.size(); i++) {
+  for (size_t i = 0; i < rvecsMat.size(); i++)
+  {
     cv::Mat rvec = rvecsMat[i];
     cv::Mat tvec = tvecsMat[i];
     cv::Mat rot;
-    cv::Rodrigues(rvec, rot);
+    cv::Rodrigues(rvec, rot); // 旋转矩阵
     std::vector<cv::Point2f> imgpoints_cir;
     cv::projectPoints(_boards_pts_cir[i], rvecsMat[i], tvecsMat[i],
-                      camera_matrix, k, imgpoints_cir);
+                      camera_matrix, k, imgpoints_cir); // _boards_pts_cir三维点投影到图像平面
     size_t y_min = imgpoints_cir[0].y;
     size_t y_max = imgpoints_cir[0].y;
     size_t x_min = imgpoints_cir[0].x;
     size_t x_max = imgpoints_cir[0].x;
-    for (size_t i = 1; i < 4; i++) {
-      if (imgpoints_cir[i].y > y_max)
+    for (size_t i = 1; i < 4; i++)
+    {
+      if (imgpoints_cir[i].y > y_max) // 找到图像平面上的最大和最小y值
         y_max = imgpoints_cir[i].y;
       if (imgpoints_cir[i].y < y_min)
         y_min = imgpoints_cir[i].y;
-      if (imgpoints_cir[i].x > x_max)
+      if (imgpoints_cir[i].x > x_max) // 找到图像平面上的最大和最小x值
         x_max = imgpoints_cir[i].x;
       if (imgpoints_cir[i].x < x_min)
         x_min = imgpoints_cir[i].x;
     }
     std::vector<cv::Point2f> imgpoints_cir1; // scl
-    for (size_t i = 0; i < 4; i++) {
+    // 找到对应的四个圆心点
+    for (size_t i = 0; i < 4; i++)
+    {
       if ((imgpoints_cir[i].x - x_min) <= 50 &&
           (imgpoints_cir[i].y - y_min) <= 50)
         imgpoints_cir1.push_back(imgpoints_cir[i]);
     }
-    for (size_t i = 0; i < 4; i++) {
+    for (size_t i = 0; i < 4; i++)
+    {
       if ((x_max - imgpoints_cir[i].x) <= 50 &&
           (imgpoints_cir[i].y - y_min) <= 50)
         imgpoints_cir1.push_back(imgpoints_cir[i]);
     }
-    for (size_t i = 0; i < 4; i++) {
+    for (size_t i = 0; i < 4; i++)
+    {
       if ((imgpoints_cir[i].x - x_min) <= 50 &&
           (y_max - imgpoints_cir[i].y) <= 50)
         imgpoints_cir1.push_back(imgpoints_cir[i]);
     }
-    for (size_t i = 0; i < 4; i++) {
+    for (size_t i = 0; i < 4; i++)
+    {
       if ((x_max - imgpoints_cir[i].x) <= 50 &&
           (y_max - imgpoints_cir[i].y) <= 50)
         imgpoints_cir1.push_back(imgpoints_cir[i]);
     }
-    if (imgpoints_cir1.size() != 4) {
-      std::cout << "imgpoints_cir1.size() must = 4" << std::endl;
+    if (imgpoints_cir1.size() != 4)
+    {
+      std::cout << "imgpoints_cir1.size() must = 4" << std::endl; // 如果投影点不是四个，则报错
       return;
     }
-    _imgs_pts_cir2D_true.push_back(imgpoints_cir1);
+    _imgs_pts_cir2D_true.push_back(imgpoints_cir1); // 将四个圆心点保存到_imgs_pts_cir2D_true中
     Eigen::Vector3d r0, r1, r2, t;
+    //得到的旋转量以及平移量
     r0 << rot.at<double>(0, 0), rot.at<double>(1, 0), rot.at<double>(2, 0);
     r1 << rot.at<double>(0, 1), rot.at<double>(1, 1), rot.at<double>(2, 1);
     r2 << rot.at<double>(0, 2), rot.at<double>(1, 2), rot.at<double>(2, 2);
@@ -136,12 +151,14 @@ void CameraCalibrator::get_result(cv::Mat &camera_matrix, cv::Mat &k,
     RT.block<3, 1>(0, 1) = r1;
     RT.block<3, 1>(0, 2) = r2;
     RT.block<3, 1>(0, 3) = t;
+    // 将RT外参+矩阵保存到vec_extrinsics中
     vec_extrinsics.push_back(RT);
   }
 
   this->refine_all(camera_intrinsic, distort, vec_extrinsics);
   std::vector<LidarPointPair> lidar_point_pairs;
-  for (size_t i = 0; i < _imgs_pts_cir2D_true.size(); i++) {
+  for (size_t i = 0; i < _imgs_pts_cir2D_true.size(); i++)
+  {
     cv::Mat img = available_imgs[i].clone();
     cv::Mat undistort_img = img;
     std::vector<cv::Point2f> left_top_src, right_top_src, left_bottom_src,
@@ -149,7 +166,8 @@ void CameraCalibrator::get_result(cv::Mat &camera_matrix, cv::Mat &k,
 
     LidarPointPair lidar_point_pair;
     lidar_point_pair.img_index = i;
-    // left top
+    // 2D点与3D点的对应关系
+    //  left top
     lidar_point_pair.lidar_2d_point[0] = _imgs_pts_cir2D_true[i][0];
     lidar_point_pair.lidar_3d_point[0] = lidar_3d_pts_[i][0];
     // right top
@@ -163,7 +181,8 @@ void CameraCalibrator::get_result(cv::Mat &camera_matrix, cv::Mat &k,
     // right bottom
     lidar_point_pair.lidar_2d_point[3] = _imgs_pts_cir2D_true[i][3];
     lidar_point_pair.lidar_3d_point[3] = lidar_3d_pts_[i][2];
-    if (false) { // Show real LiDAR pixels
+    if (false)
+    { // Show real LiDAR pixels
       DrawCross(undistort_img, lidar_point_pair.lidar_2d_point[0]);
       DrawCross(undistort_img, lidar_point_pair.lidar_2d_point[1]);
       DrawCross(undistort_img, lidar_point_pair.lidar_2d_point[2]);
@@ -172,7 +191,7 @@ void CameraCalibrator::get_result(cv::Mat &camera_matrix, cv::Mat &k,
       cv::imwrite(save_name, undistort_img);
     }
 
-    if (i > 20) // no corresponding circle center for more than 20
+    if (i > 20) // 如果相机图片以及标定位置数量小于20.no corresponding circle center for more than 20
     {
       continue;
     }
@@ -180,7 +199,7 @@ void CameraCalibrator::get_result(cv::Mat &camera_matrix, cv::Mat &k,
     lidar_point_pairs.push_back(lidar_point_pair);
   }
 
-  // an inaccurate initial Lidar-camera extrinsic
+  // 一个不准确的初始激光雷达相机外参
   Eigen::Matrix<double, 3, 4> initial_extrinsic;
   initial_extrinsic << -0.0000667338, -0.9999999780, 0.0001990654,
       -0.0010031200, -0.0000409491, 0.0001990681, 0.9999999793, 0.5912607639,
@@ -188,20 +207,21 @@ void CameraCalibrator::get_result(cv::Mat &camera_matrix, cv::Mat &k,
   std::cout << initial_extrinsic << std::endl;
 
   this->refine_lidar2camera(camera_intrinsic, distort, vec_extrinsics,
-                            initial_extrinsic, lidar_point_pairs);
+                            initial_extrinsic, lidar_point_pairs); // 得到更准确的激光雷达相机外参
 
   double lidar_reprojection_error = 0;
   int number = 0;
-  if (true) // Show the optimized projection effect
+  if (true) // 显示优化后的投影效果
   {
-    for (size_t i = 0; i < lidar_point_pairs.size(); i++) {
+    for (size_t i = 0; i < lidar_point_pairs.size(); i++)
+    {
       int img_index = lidar_point_pairs[i].img_index;
       cv::Mat img = available_imgs[img_index].clone();
       cv::Mat undistort_img = img;
       // image_undistort(img, undistort_img, camera_intrinsic, distort);
       cv::Point2f img_pt;
       lidar_projection(camera_intrinsic, initial_extrinsic,
-                       lidar_point_pairs[i].lidar_3d_point[0], img_pt);
+                       lidar_point_pairs[i].lidar_3d_point[0], img_pt); // 得到激光雷达点在相机图像上的投影
       cv::circle(undistort_img, img_pt, 8, (0, 255, 0), 8);
 
       cv::Point2f pt = lidar_point_pairs[i].lidar_2d_point[0];
@@ -247,7 +267,8 @@ void CameraCalibrator::get_result(cv::Mat &camera_matrix, cv::Mat &k,
             << std::endl;
 }
 
-void CameraCalibrator::DrawCross(cv::Mat &img, cv::Point point) {
+void CameraCalibrator::DrawCross(cv::Mat &img, cv::Point point)
+{
   double cx = point.x;
   double cy = point.y;
   double len = 10;
@@ -260,7 +281,8 @@ void CameraCalibrator::DrawCross(cv::Mat &img, cv::Point point) {
 void CameraCalibrator::lidar_projection(
     const Eigen::Matrix3d &camera_intrinsic,
     const Eigen::Matrix<double, 3, 4> &extrinsic, const cv::Point3f &pt,
-    cv::Point2f &img_pt) {
+    cv::Point2f &img_pt)
+{
   Eigen::Matrix<double, 4, 1> lidar_point;
   lidar_point << pt.x, pt.y, pt.z, 1.0;
   // Eigen::Matrix<float, 3, 1> pro_pt;
@@ -272,7 +294,8 @@ void CameraCalibrator::lidar_projection(
 void CameraCalibrator::point_undistort(
     const std::vector<std::vector<cv::Point2f>> &board_imgs_pts,
     std::vector<std::vector<cv::Point2f>> &undistort_pts,
-    const Eigen::Matrix3d camera_intrinsic, const Eigen::VectorXd distort) {
+    const Eigen::Matrix3d camera_intrinsic, const Eigen::VectorXd distort)
+{
   cv::Mat K, D;
   float d[4], k[9];
   k[0] = camera_intrinsic(0, 0);
@@ -294,11 +317,13 @@ void CameraCalibrator::point_undistort(
   double fy = camera_intrinsic(1, 1);
   double cx = camera_intrinsic(0, 2);
   double cy = camera_intrinsic(1, 2);
-  for (size_t i = 0; i < board_imgs_pts.size(); i++) {
+  for (size_t i = 0; i < board_imgs_pts.size(); i++)
+  {
     std::vector<cv::Point2f> src = board_imgs_pts[i];
     std::vector<cv::Point2f> dst;
     cv::undistortPoints(src, dst, K, D);
-    for (size_t i = 0; i < dst.size(); i++) {
+    for (size_t i = 0; i < dst.size(); i++)
+    {
       dst[i].x = dst[i].x * fx + cx;
       dst[i].y = dst[i].y * fy + cy;
     }
@@ -310,7 +335,8 @@ void CameraCalibrator::point_undistort(
 void CameraCalibrator::image_undistort(const cv::Mat &img,
                                        cv::Mat &undistort_img,
                                        const Eigen::Matrix3d camera_intrinsic,
-                                       const Eigen::VectorXd distort) {
+                                       const Eigen::VectorXd distort)
+{
   cv::Mat K, D;
   float d[4], k[9];
   k[0] = camera_intrinsic(0, 0);
@@ -337,19 +363,22 @@ void CameraCalibrator::image_undistort(const cv::Mat &img,
   undistort_img = outImg;
 }
 
-void CameraCalibrator::make_board_points(const cv::Size &chessboard_size_) {
+void CameraCalibrator::make_board_points(const cv::Size &chessboard_size_)
+{
   std::vector<cv::Point2f> vec_points;
   std::vector<cv::Point3f> vec_points_3d;
-  for (int r = 0; r < chessboard_size_.height; ++r) {
-    for (int c = 0; c < chessboard_size_.width; ++c) {
+  for (int r = 0; r < chessboard_size_.height; ++r)
+  {
+    for (int c = 0; c < chessboard_size_.width; ++c)
+    {
       vec_points.emplace_back(c, r);
       vec_points_3d.emplace_back(c, r, 0);
     }
   }
-  _boards_pts.push_back(vec_points);
-  _boards_pts_3d.push_back(vec_points_3d);
+  _boards_pts.push_back(vec_points);       //每个棋盘的点
+  _boards_pts_3d.push_back(vec_points_3d); //每个棋盘的3D点
 
-  std::vector<cv::Point3f> vec_points_cir;
+  std::vector<cv::Point3f> vec_points_cir;           //四个圆心的点，相较于标定板的位姿
   vec_points_cir.emplace_back(1.82f, -3.12f, 0.0f);  // sim
   vec_points_cir.emplace_back(14.18f, -3.12f, 0.0f); // sim
   vec_points_cir.emplace_back(1.82f, 9.12f, 0.0f);   // sim
@@ -360,7 +389,8 @@ void CameraCalibrator::make_board_points(const cv::Size &chessboard_size_) {
 
 void CameraCalibrator::refine_all(
     Eigen::Matrix3d &camera_matrix_, Eigen::VectorXd &k_,
-    std::vector<Eigen::MatrixXd> &vec_extrinsics_) {
+    std::vector<Eigen::MatrixXd> &vec_extrinsics_)
+{
 
   Params params, params_refined;
   params.camera_matrix = camera_matrix_;
@@ -377,7 +407,8 @@ void CameraCalibrator::refine_lidar2camera(
     Eigen::Matrix3d &camera_matrix_, Eigen::VectorXd &k_,
     std::vector<Eigen::MatrixXd> &vec_extrinsics_,
     Eigen::Matrix<double, 3, 4> &initial_extrinsic,
-    std::vector<LidarPointPair> &lidar_point_pairs) {
+    std::vector<LidarPointPair> &lidar_point_pairs)
+{
   LidarParams params, params_refined;
   params.camera_matrix = camera_matrix_;
   params.k = k_;
@@ -385,7 +416,7 @@ void CameraCalibrator::refine_lidar2camera(
   params.extrinsic = initial_extrinsic;
 
   optimier.refine_lidar2camera_params(params, _imgs_pts, _boards_pts,
-                                      lidar_point_pairs, params_refined);
+                                      lidar_point_pairs, params_refined); //更新参数
 
   //
   camera_matrix_ = params_refined.camera_matrix;
@@ -396,13 +427,16 @@ void CameraCalibrator::refine_lidar2camera(
 
 void CameraCalibrator::get_distortion(
     const Eigen::Matrix3d &camera_matrix_,
-    const std::vector<Eigen::MatrixXd> &vec_extrinsics_, Eigen::VectorXd &k_) {
+    const std::vector<Eigen::MatrixXd> &vec_extrinsics_, Eigen::VectorXd &k_)
+{
   Eigen::MatrixXd D;
   Eigen::VectorXd d;
   double uc = camera_matrix_(0, 2);
   double vc = camera_matrix_(1, 2);
-  for (int i = 0; i < _imgs_pts.size(); ++i) {
-    for (int j = 0; j < _imgs_pts[i].size(); ++j) {
+  for (int i = 0; i < _imgs_pts.size(); ++i)
+  {
+    for (int j = 0; j < _imgs_pts[i].size(); ++j)
+    {
       Eigen::Vector4d houm_coor(_boards_pts[i][j].x, _boards_pts[i][j].y, 0, 1);
       Eigen::Vector3d uv = camera_matrix_ * vec_extrinsics_[i] * houm_coor;
       Eigen::Vector2d uv_estim(uv(0) / uv(2), uv(1) / uv(2));
@@ -435,10 +469,12 @@ void CameraCalibrator::get_distortion(
 void CameraCalibrator::get_extrinsics(
     const std::vector<Eigen::Matrix3d> &vec_h_,
     const Eigen::Matrix3d &camera_matrix_,
-    std::vector<Eigen::MatrixXd> &vec_extrinsics_) {
+    std::vector<Eigen::MatrixXd> &vec_extrinsics_)
+{
   vec_extrinsics_.clear();
   Eigen::Matrix3d inv_camera_matrix = camera_matrix_.inverse();
-  for (int i = 0; i < vec_h_.size(); ++i) {
+  for (int i = 0; i < vec_h_.size(); ++i)
+  {
     Eigen::Vector3d s = inv_camera_matrix * vec_h_[i].col(0);
     double scalar_factor = 1 / s.norm();
 
@@ -457,7 +493,8 @@ void CameraCalibrator::get_extrinsics(
 }
 
 void CameraCalibrator::create_v(const Eigen::Matrix3d &h_, const int p,
-                                const int q, Eigen::RowVectorXd &row_v_) {
+                                const int q, Eigen::RowVectorXd &row_v_)
+{
   row_v_ << h_(0, p) * h_(0, q), h_(0, p) * h_(1, q) + h_(1, p) * h_(0, q),
       h_(1, p) * h_(1, q), h_(2, p) * h_(0, q) + h_(0, p) * h_(2, q),
       h_(2, p) * h_(1, q) + h_(1, p) * h_(2, q), h_(2, p) * h_(2, q);
@@ -465,12 +502,14 @@ void CameraCalibrator::create_v(const Eigen::Matrix3d &h_, const int p,
 
 void CameraCalibrator::get_camera_instrinsics(
     const std::vector<Eigen::Matrix3d> &vec_h_,
-    Eigen::Matrix3d &camera_matrix_) {
+    Eigen::Matrix3d &camera_matrix_)
+{
   int N = vec_h_.size();
   Eigen::MatrixXd V(2 * N, 6);
   V.setZero();
 
-  for (int n = 0; n < N; ++n) {
+  for (int n = 0; n < N; ++n)
+  {
     Eigen::RowVectorXd v01(6), v00(6), v11(6);
     create_v(vec_h_[n], 0, 1, v01);
     V.row(2 * n) = v01;
@@ -494,9 +533,11 @@ void CameraCalibrator::get_camera_instrinsics(
   camera_matrix_ << alpha, gamma, uc, 0, beta, vc, 0, 0, 1;
 }
 
-void CameraCalibrator::get_homography(std::vector<Eigen::Matrix3d> &vec_h_) {
+void CameraCalibrator::get_homography(std::vector<Eigen::Matrix3d> &vec_h_)
+{
   vec_h_.clear();
-  for (int i = 0; i < _imgs_pts.size(); ++i) {
+  for (int i = 0; i < _imgs_pts.size(); ++i)
+  {
     Eigen::Matrix3d ini_H, refined_H;
     this->estimate_H(_imgs_pts[i], _boards_pts[i], ini_H);
     optimier.refine_H(_imgs_pts[i], _boards_pts[i], ini_H, refined_H);
@@ -506,7 +547,8 @@ void CameraCalibrator::get_homography(std::vector<Eigen::Matrix3d> &vec_h_) {
 
 void CameraCalibrator::estimate_H(const std::vector<cv::Point2f> &img_pts_,
                                   const std::vector<cv::Point2f> &board_pts_,
-                                  Eigen::Matrix3d &matrix_H_) {
+                                  Eigen::Matrix3d &matrix_H_)
+{
   Eigen::Matrix3d matrix_normalize_img_pts;
   Eigen::Matrix3d matrix_normalize_board_pts;
   int N = img_pts_.size();
@@ -515,7 +557,8 @@ void CameraCalibrator::estimate_H(const std::vector<cv::Point2f> &img_pts_,
   Eigen::MatrixXd M(2 * N, 9);
   M.setZero();
 
-  for (int i = 0; i < N; ++i) {
+  for (int i = 0; i < N; ++i)
+  {
     Eigen::Vector3d norm_img_p =
         matrix_normalize_img_pts *
         Eigen::Vector3d(img_pts_[i].x, img_pts_[i].y, 1);
@@ -547,20 +590,21 @@ void CameraCalibrator::estimate_H(const std::vector<cv::Point2f> &img_pts_,
 }
 
 void CameraCalibrator::get_normalization_matrix(
-    const std::vector<cv::Point2f> &pts_, Eigen::Matrix3d &matrix_trans_) {
+    const std::vector<cv::Point2f> &pts_, Eigen::Matrix3d &matrix_trans_)
+{
   double sum_x = 0, sum_y = 0;
-  std::for_each(std::begin(pts_), std::end(pts_), [&](const cv::Point2f &p) {
+  std::for_each(std::begin(pts_), std::end(pts_), [&](const cv::Point2f &p)
+                {
     sum_x += p.x;
-    sum_y += p.y;
-  });
+    sum_y += p.y; });
   double mean_x = sum_x / pts_.size();
   double mean_y = sum_y / pts_.size();
 
   double accmx = 0, accmy = 0;
-  std::for_each(std::begin(pts_), std::end(pts_), [&](const cv::Point2f &p) {
+  std::for_each(std::begin(pts_), std::end(pts_), [&](const cv::Point2f &p)
+                {
     accmx += (p.x - mean_x) * (p.x - mean_x);
-    accmy += (p.y - mean_y) * (p.y - mean_y);
-  });
+    accmy += (p.y - mean_y) * (p.y - mean_y); });
   double stdx = std::sqrt(accmx / double(pts_.size() - 1));
   double stdy = std::sqrt(accmy / double(pts_.size() - 1));
 
